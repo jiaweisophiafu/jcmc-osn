@@ -1,0 +1,170 @@
+library(bibliometrix)
+### Read in WoS data
+D1 <- readFiles("savedrecs.bib")  #"data/savedrecs_old.bib"
+df <- convert2df(D1, dbsource = "isi", format = "bibtex")
+write.csv(df, "All_268_Papers.csv")
+results <- biblioAnalysis(df, sep = ";")
+
+file1 <- read.csv("file1.csv", header = T)
+file2 <- read.csv("file2.csv", header = T)
+res <- vector()
+for(i in 1:nrow(file2)){
+  if(! file2$vertexID[i] %in% file1$vertexID){
+    res = c(res, i)
+  }
+}
+
+
+## Bibliometric Analysis
+options(width = 100)
+
+s <- summary(object = results, k = 30, pause = FALSE)
+
+### Plot articles per year; average total citations per year; most productive authors & countries etc.
+plot(x = results, k=20, pause = FALSE)
+#plot(x = results, xlab = "N. of Documents", ylab = "Authors", main = "Most Productive Authors", k=10, pause = FALSE)
+
+## Analysis of Cited References (Secondary)
+write.csv(cbind(citations(df, field = "article", sep = ".  ")$Cited), file = "Secondary references.csv")
+cbind(citations(df, field = "article", sep = ".  ")$Cited[1:25])
+table(cbind(citations(df, field = "article", sep = ".  ")$Cited))
+length(citations(df, field = "article", sep = ".  ")$Cited)
+
+##Most frequently cited first authors (Secondary)
+cbind(citations(df, field = "author", sep = ".  ")$Cited[1:20])
+
+##Most frequent locally cited authors (Secondary; most frequent cited papers/authors by papers/authors also in the secondary collection)
+CR <- localCitations(df, sep = ".  ")
+CR$Authors[1:15,]
+CR$Papers[1:15,]
+
+## Authors' Dominance Ranking
+DF <- dominance(results, k = 20)
+DF
+
+## Authors' h-index
+authors <- gsub(",", " ", names(results$Authors)[1:10]) ##h-index of the most productive authors
+indices <- Hindex(df, authors, sep = ";", years = 50)
+indices$H
+
+## Lotka's Law Coefficient Estimation
+L <- lotka(results)
+# author productivity
+L$AuthorProd
+# beta coefficient estimated
+L$Beta
+# constant
+L$C
+# goodness of fit
+L$R2
+#P-value of K-S two sample test
+L$p.value
+
+# observed distribution
+Observed <- L$AuthorProd[,3]
+# theoretical distribution
+Theoretical <- 10^(log10(L$C)-2*log10(L$AuthorProd[,1]))
+
+plot(L$AuthorProd[,1], Theoretical, type = "l", col = "red", ylim = c(0,1), xlab = "Articles", ylab = "Freq. of Authors", main = "Scientific Productivity")
+lines(L$AuthorProd[,1], Observed, col = "blue")
+legend(x = "topright", c("Theoretical (B=2)", "Observed"), col = c("red","blue"), lty = c(1,1,1), cex = 0.6, bty = "n")
+
+## Bibliomgraphic Network Matrices
+############################################################################################################
+### Bibligraphic coupling
+
+BC <- biblioNetwork(df, analysis = "coupling", network = "references", sep = ".  ")
+write.csv(networkStat(BC)$vertex, file = "descriptive.csv")
+##BC1 = BC
+##BC1[BC < 3] = 0 since the normalize function uses the relative measure of strength, based on how many references a primary paper; 
+## doesn't make sense to have a cut-off for the tie strength here
+set.seed(3333)
+net.bc=networkPlot(BC, normalize = "association", weighted=TRUE, n = 268, cluster = "walktrap", 
+                type = "auto", size = 4, size.cex=T, Title = "Bibligraphic Coupling",
+                remove.multiple=TRUE, label.cex=F, labelsize = 0.45, label.n=80, remove.isolates = T, curved = TRUE)
+df$TI[]
+df$AU["Hampton 2011-1"]
+#net.bc 
+write.csv(net.bc[["cluster_res"]], file = "BC_Cluster_268.csv")
+
+descriptive = read.csv(file = "descriptive.csv", header = T)
+BC = read.csv(file = "BC_Cluster_268.csv", header = T)
+table(BC$cluster)
+entire <- merge(descriptive, BC, by = "vertexID")
+write.csv(entire, file = "Entire_Cluster_BC_Descriptive_268.csv")
+############################################################################################################################
+
+summary(networkStat(BC))
+
+isolate <- read.csv("Isolate.csv", header = T)
+table(isolate$VO)
+############################################################################################################################
+############################################################################################################################
+############################################################################################################################
+### Authors coupling
+#NetMatrix <- biblioNetwork(df, analysis = "coupling", network = "authors", sep = ";")
+#net=networkPlot(NetMatrix,  normalize = "salton", weighted=NULL, n = 100, Title = "Authors' Coupling", 
+               # type = "auto", size=5,size.cex=T,remove.multiple=TRUE, labelsize = 0.8,
+             # label.n=70,label.cex=F, curved = TRUE, remove.isolates = T)
+#   labelsize=0.8,
+#summary(networkStat(NetMatrix))
+############################################################################################################################
+############################################################################################################################
+### Co-citation
+CR <- citations(df, field = "article", sep = ".   ") #<=5, 579; <=4, 555
+CR_high <- names(CR$Cited[CR$Cited >= 2 & CR$Cited <=5]) #153 (CR$Cited > 7) CR$Cited >= 3, 1154; >= 4, 664; >= 6, 264; >= 5, 441
+#write.csv(CR_high, "CR_high_664.csv")
+select_high_Cited <- function(s, CR_high){
+  s <- strsplit(s, ".  ")[[1]]
+  s <- trimws(s)
+  s <- gsub("\\.", "",s)
+  s <- s[s %in% CR_high]
+  s <- paste(s, collapse = ".  ")
+  trimws(s)
+}
+df_copy <- df
+df_copy$CR <- lapply(df_copy$CR, function(s) select_high_Cited(s, CR_high))
+df_copy$CR <- unlist(df_copy$CR)
+
+#NetMatrix <- biblioNetwork(df_copy, analysis = "co-citation", network = "references", sep = ".  ")
+NetMatrix <- biblioNetwork(df_copy, analysis = "co-citation", network = "references", sep = ".  ")
+networkStat(NetMatrix)
+write.csv(networkStat(NetMatrix)$vertex, "descriptive_CC_579.csv") #>= 2, 609; >= 3, 215
+#NetMatrix1 = NetMatrix
+#NetMatrix1[NetMatrix < 2] = 0
+set.seed(33333) #>=6, 30
+net.cc=networkPlot(NetMatrix,  normalize = "association", weighted=TRUE, n = 579, cluster = "walktrap",
+                type = "auto", size=5,size.cex=T,remove.multiple=TRUE,Title = "Co-Citation Analysis", 
+                labelsize=0.4,label.n=10,label.cex=F, curved = TRUE)
+#net.cc
+write.csv(net.cc[["cluster_res"]], file = "CC_Cluster_268_579.csv")
+
+CC = read.csv("CC_Cluster_268_579.csv", header = T)
+table(CC$cluster)
+descriptive1 <- read.csv("descriptive_CC_609.csv", header = T)
+entire_CC <- merge(descriptive1, CC, by = "vertexID")
+write.csv(entire_CC, file = "Entire_Cluster_CC_Descriptive_609.csv")
+
+#Eck & Waltman, 2009
+summary(networkStat(NetMatrix))
+
+### Keyword co-occurrences
+NetMatrix <- biblioNetwork(df, analysis = "co-occurrences", network = "keywords", sep = ";")
+net=networkPlot(NetMatrix,  normalize = "association", weighted=T, n = 200, cluster = "walktrap",
+                Title = "Keyword Co-occurrences", type = "auto", size=5,size.cex=T,
+                remove.multiple=TRUE,labelsize=0.4,label.n=50,label.cex=F, curved = TRUE)
+write.csv(net[["cluster_res"]], file = "Keywork_Cluster_268.csv")
+keyword <- read.csv("Keywords_Cluster_268.csv", header = T)
+table(keyword$cluster)
+summary(networkStat(NetMatrix))
+
+### Co-word Analysis: The conceptual structure of a field
+##first method best 800*600
+CS <- conceptualStructure(df,field="ID", method="MCA", minDegree=5, k.max=8, stemming=FALSE, labelsize=10, documents=30)
+#CS <- conceptualStructure(df,field="AB", method="MCA", minDegree=30, k.max=8, stemming=FALSE, labelsize=12, documents=10)
+#CS <- conceptualStructure(df,field="DE", method="MCA", minDegree=5, k.max=8, stemming=FALSE, labelsize=12, documents=10)
+
+## Historical Direct Citation Network
+options(width = 130)
+histResults <- histNetwork(df, min.citations = 10, sep = ".  ")
+net <- histPlot(histResults, n=20, size = 6, labelsize=1, size.cex=TRUE, arrowsize = 0.5, color = TRUE)
